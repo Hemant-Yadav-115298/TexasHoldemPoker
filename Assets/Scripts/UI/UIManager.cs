@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
@@ -243,5 +244,37 @@ public class UIManager : MonoBehaviour
             if (panel != null)
                 panel.ClearAction();
         }
+    }
+
+    /// <summary>
+    /// Get the transform of a player panel by seat index.
+    /// Used for chip animations targeting a player.
+    /// </summary>
+    public Transform GetPlayerPanelTransform(int seatIndex)
+    {
+        if (playerPanels == null || seatIndex < 0 || seatIndex >= playerPanels.Length)
+            return null;
+        
+        return playerPanels[seatIndex]?.transform;
+    }
+
+    /// <summary>
+    /// Get all bet displays for chip collection animations.
+    /// </summary>
+    public BetDisplay[] GetAllBetDisplays()
+    {
+        if (playerPanels == null) return null;
+        
+        List<BetDisplay> displays = new List<BetDisplay>();
+        foreach (var panel in playerPanels)
+        {
+            if (panel != null)
+            {
+                BetDisplay bet = panel.GetComponentInChildren<BetDisplay>();
+                if (bet != null)
+                    displays.Add(bet);
+            }
+        }
+        return displays.ToArray();
     }
 }

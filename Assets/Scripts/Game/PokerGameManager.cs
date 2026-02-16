@@ -138,6 +138,23 @@ public class PokerGameManager : MonoBehaviour, IGameObserver
 
             // Store phase before action
             var phaseBefore = gameState.Phase;
+            
+            // Store bet information BEFORE action (in case phase changes and bets get cleared)
+            List<(Transform position, decimal amount)> currentBets = new List<(Transform, decimal)>();
+            if (uiManager != null)
+            {
+                BetDisplay[] displays = uiManager.GetAllBetDisplays();
+                if (displays != null)
+                {
+                    foreach (var display in displays)
+                    {
+                        if (display != null && display.GetCurrentBet() > 0)
+                        {
+                            currentBets.Add((display.transform, display.GetCurrentBet()));
+                        }
+                    }
+                }
+            }
 
             // Check if it's human player's turn
             if (gameState.CurrentSeatToAct == HUMAN_PLAYER_SEAT)
@@ -164,8 +181,14 @@ public class PokerGameManager : MonoBehaviour, IGameObserver
             var phaseAfter = gameState.Phase;
             if (phaseBefore != phaseAfter)
             {
-                // Phase changed! Animate community cards
+                // Phase changed! Betting round complete
                 Debug.Log($"Phase transition: {phaseBefore} → {phaseAfter}");
+                
+                // Animate chips flying from saved bet positions to center pot
+                if (potAnimator != null && currentBets.Count > 0)
+                {
+                    yield return StartCoroutine(AnimateChipsToPot(currentBets));
+                }
                 
                 // Animate community cards based on new phase
                 if (cardDealerManager != null)
@@ -459,15 +482,18 @@ public class PokerGameManager : MonoBehaviour, IGameObserver
             Debug.Log($"💰 Transferring ${amount} to {player.Name}");
             
             // Find player's UI panel for animation target
-            if (potAnimator != null)
+            if (potAnimator != null && uiManager != null)
             {
-                // You'll need to get the player's UI panel transform
-                // For now, we'll use a simple delay
-                yield return new WaitForSeconds(0.5f);
-                
-                // TODO: Get actual player panel transform
-                // Transform playerTransform = GetPlayerPanelTransform(player.SeatIndex);
-                // yield return StartCoroutine(potAnimator.AnimatePotToWinner(playerTransform, amount));
+                Transform playerTransform = uiManager.GetPlayerPanelTransform(player.SeatIndex);
+                if (playerTransform != null)
+                {
+                    // Animate chips flying from pot to winner
+                    yield return StartCoroutine(potAnimator.AnimatePotToWinner(playerTransform, amount));
+                }
+                else
+                {
+                    yield return new WaitForSeconds(0.5f);
+                }
             }
             else
             {
@@ -482,6 +508,17 @@ public class PokerGameManager : MonoBehaviour, IGameObserver
         }
         
         yield return new WaitForSeconds(1f);
+    }
+
+    /// <summary>
+    /// Animate chips flying from bet positions to center pot.
+    /// </summary>
+    private IEnumerator AnimateChipsToPot(List<(Transform position, decimal amount)> bets)
+    {
+        if (potAnimator == null || bets == null || bets.Count == 0)
+            yield break;
+        
+        yield return StartCoroutine(potAnimator.AnimateBetsFromPositions(bets));
     }
 
     private IEnumerator CountdownToNextHand()

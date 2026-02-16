@@ -1,20 +1,164 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using TMPro;
 
 /// <summary>
-/// Animates pot transfer from center to winner.
+/// Animates pot transfer with flying chip effects.
 /// </summary>
 public class PotAnimator : MonoBehaviour
 {
     [Header("Animation Settings")]
     [SerializeField] private float animationDuration = 1.5f;
     [SerializeField] private AnimationCurve movementCurve = AnimationCurve.EaseInOut(0, 0, 1, 1);
-    [SerializeField] private GameObject potChipPrefab; // Optional: chip/money visual
     
     [Header("References")]
     [SerializeField] private Transform centerPotPosition;
     [SerializeField] private TextMeshProUGUI centerPotText;
+    [SerializeField] private ChipStackAnimator chipAnimator;
+    
+    [Header("Settings")]
+    [SerializeField] private bool useChipAnimations = true;
+
+    private void Awake()
+    {
+        // Auto-find or create ChipStackAnimator
+        if (chipAnimator == null)
+        {
+            chipAnimator = FindFirstObjectByType<ChipStackAnimator>();
+            
+            if (chipAnimator == null && useChipAnimations)
+            {
+                GameObject animObj = new GameObject("ChipStackAnimator");
+                animObj.transform.SetParent(transform.root);
+                chipAnimator = animObj.AddComponent<ChipStackAnimator>();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Animate chips flying from a bet position to the center pot.
+    /// </summary>
+    public IEnumerator AnimateBetToPot(Transform betPosition, decimal amount)
+    {
+        if (betPosition == null || centerPotPosition == null)
+            yield break;
+
+        if (useChipAnimations && chipAnimator != null)
+        {
+            yield return StartCoroutine(chipAnimator.AnimateChipsMoving(
+                betPosition.position,
+                centerPotPosition.position,
+                amount
+            ));
+        }
+    }
+
+    /// <summary>
+    /// Animate all player bets flying to center pot.
+    /// </summary>
+    public IEnumerator AnimateCollectBets(BetDisplay[] betDisplays)
+    {
+        Debug.Log($"AnimateCollectBets called. betDisplays={betDisplays?.Length}, useChipAnimations={useChipAnimations}, chipAnimator={chipAnimator}");
+        
+        if (betDisplays == null)
+        {
+            Debug.LogWarning("AnimateCollectBets: betDisplays is null!");
+            yield break;
+        }
+        
+        if (!useChipAnimations)
+        {
+            Debug.LogWarning("AnimateCollectBets: useChipAnimations is FALSE. Enable it in Inspector!");
+            yield break;
+        }
+        
+        if (chipAnimator == null)
+        {
+            Debug.LogWarning("AnimateCollectBets: chipAnimator is null, trying to find/create one...");
+            chipAnimator = FindFirstObjectByType<ChipStackAnimator>();
+            
+            if (chipAnimator == null)
+            {
+                GameObject animObj = new GameObject("ChipStackAnimator");
+                animObj.transform.SetParent(transform.root);
+                chipAnimator = animObj.AddComponent<ChipStackAnimator>();
+                Debug.Log("Created ChipStackAnimator!");
+            }
+        }
+
+        int animCount = 0;
+        
+        // Start all animations at once (they run in parallel)
+        foreach (var betDisplay in betDisplays)
+        {
+            if (betDisplay != null && betDisplay.GetCurrentBet() > 0)
+            {
+                Debug.Log($"Animating chips: ${betDisplay.GetCurrentBet()} from {betDisplay.name} to pot");
+                StartCoroutine(chipAnimator.AnimateChipsMoving(
+                    betDisplay.transform.position,
+                    centerPotPosition.position,
+                    betDisplay.GetCurrentBet()
+                ));
+                animCount++;
+            }
+        }
+        
+        Debug.Log($"AnimateCollectBets: Started {animCount} chip animations");
+
+        // Wait for animations to complete
+        yield return new WaitForSeconds(0.8f);
+    }
+
+    /// <summary>
+    /// Animate chips from saved positions to center pot.
+    /// Used when bet amounts are captured before UI update clears them.
+    /// </summary>
+    public IEnumerator AnimateBetsFromPositions(List<(Transform position, decimal amount)> bets)
+    {
+        if (bets == null || bets.Count == 0)
+        {
+            Debug.Log("AnimateBetsFromPositions: No bets to animate");
+            yield break;
+        }
+        
+        if (centerPotPosition == null)
+        {
+            Debug.LogWarning("AnimateBetsFromPositions: centerPotPosition is null!");
+            yield break;
+        }
+        
+        // Ensure we have chip animator
+        if (chipAnimator == null)
+        {
+            chipAnimator = FindFirstObjectByType<ChipStackAnimator>();
+            if (chipAnimator == null)
+            {
+                GameObject animObj = new GameObject("ChipStackAnimator");
+                animObj.transform.SetParent(transform.root);
+                chipAnimator = animObj.AddComponent<ChipStackAnimator>();
+            }
+        }
+        
+        Debug.Log($"AnimateBetsFromPositions: Animating {bets.Count} bet positions to pot");
+        
+        // Start all animations at once
+        foreach (var (position, amount) in bets)
+        {
+            if (position != null && amount > 0)
+            {
+                Debug.Log($"Flying ${amount} from {position.name} to pot");
+                StartCoroutine(chipAnimator.AnimateChipsMoving(
+                    position.position,
+                    centerPotPosition.position,
+                    amount
+                ));
+            }
+        }
+        
+        // Wait for animations
+        yield return new WaitForSeconds(0.8f);
+    }
 
     public IEnumerator AnimatePotToWinner(Transform winnerPosition, decimal amount)
     {
@@ -24,15 +168,24 @@ public class PotAnimator : MonoBehaviour
             yield break;
         }
 
-        // Create visual effect for pot transfer
-        GameObject potVisual = CreatePotVisual(amount);
-        if (potVisual != null)
+        // Use chip animations
+        if (useChipAnimations && chipAnimator != null)
         {
-            // Animate pot moving from center to winner
-            yield return StartCoroutine(MovePotVisual(potVisual, centerPotPosition.position, winnerPosition.position));
-            
-            // Destroy the visual after animation
-            Destroy(potVisual);
+            yield return StartCoroutine(chipAnimator.AnimatePotToWinner(
+                centerPotPosition,
+                winnerPosition,
+                amount
+            ));
+        }
+        else
+        {
+            // Fallback to text animation
+            GameObject potVisual = CreatePotVisual(amount);
+            if (potVisual != null)
+            {
+                yield return StartCoroutine(MovePotVisual(potVisual, centerPotPosition.position, winnerPosition.position));
+                Destroy(potVisual);
+            }
         }
 
         // Update center pot display to show 0
@@ -44,18 +197,15 @@ public class PotAnimator : MonoBehaviour
 
     private GameObject CreatePotVisual(decimal amount)
     {
-        // Create a simple text visual for the pot amount
         GameObject potVisual = new GameObject("PotTransfer");
         potVisual.transform.SetParent(transform);
         
-        // Add text component
         var textComponent = potVisual.AddComponent<TextMeshProUGUI>();
         textComponent.text = $"${amount}";
         textComponent.fontSize = 24;
         textComponent.color = Color.yellow;
         textComponent.alignment = TextAlignmentOptions.Center;
         
-        // Position at center pot
         potVisual.transform.position = centerPotPosition.position;
         
         return potVisual;
@@ -71,54 +221,71 @@ public class PotAnimator : MonoBehaviour
             float progress = elapsed / animationDuration;
             float curveValue = movementCurve.Evaluate(progress);
             
-            // Move the pot visual
             potVisual.transform.position = Vector3.Lerp(startPos, endPos, curveValue);
             
-            // Optional: Add some scaling or rotation effects
             float scale = 1f + Mathf.Sin(progress * Mathf.PI) * 0.2f;
             potVisual.transform.localScale = Vector3.one * scale;
             
             yield return null;
         }
         
-        // Ensure final position
         potVisual.transform.position = endPos;
         potVisual.transform.localScale = Vector3.one;
     }
 
     public IEnumerator AnimateStackUpdate(Transform playerPosition, decimal oldAmount, decimal newAmount)
     {
-        // Create a visual effect showing the stack increase
         GameObject stackVisual = new GameObject("StackIncrease");
         stackVisual.transform.SetParent(transform);
         
         var textComponent = stackVisual.AddComponent<TextMeshProUGUI>();
         decimal increase = newAmount - oldAmount;
         textComponent.text = $"+${increase}";
-        textComponent.fontSize = 20;
-        textComponent.color = Color.green;
+        textComponent.fontSize = 28;
+        textComponent.fontStyle = FontStyles.Bold;
+        textComponent.color = new Color(0.2f, 1f, 0.2f, 1f);
         textComponent.alignment = TextAlignmentOptions.Center;
+        textComponent.outlineWidth = 0.2f;
+        textComponent.outlineColor = Color.black;
         
-        // Position at player
+        RectTransform rect = stackVisual.GetComponent<RectTransform>();
+        if (rect != null) rect.sizeDelta = new Vector2(200, 50);
+        
         stackVisual.transform.position = playerPosition.position;
         
-        // Animate upward movement and fade
         Vector3 startPos = playerPosition.position;
-        Vector3 endPos = startPos + Vector3.up * 50f; // Move up
+        Vector3 endPos = startPos + Vector3.up * 80f;
         
         float elapsed = 0f;
-        while (elapsed < 2f)
+        float duration = 2f;
+        
+        stackVisual.transform.localScale = Vector3.zero;
+        
+        while (elapsed < duration)
         {
             elapsed += Time.deltaTime;
-            float progress = elapsed / 2f;
+            float progress = elapsed / duration;
             
-            // Move up
-            stackVisual.transform.position = Vector3.Lerp(startPos, endPos, progress);
+            float moveProgress = Mathf.SmoothStep(0, 1, progress);
+            stackVisual.transform.position = Vector3.Lerp(startPos, endPos, moveProgress);
             
-            // Fade out
-            Color color = textComponent.color;
-            color.a = 1f - progress;
-            textComponent.color = color;
+            // Scale pop effect
+            float scale;
+            if (progress < 0.15f)
+                scale = Mathf.Lerp(0, 1.3f, progress / 0.15f);
+            else if (progress < 0.25f)
+                scale = Mathf.Lerp(1.3f, 1f, (progress - 0.15f) / 0.1f);
+            else
+                scale = 1f;
+            stackVisual.transform.localScale = Vector3.one * scale;
+            
+            // Fade out in last 40%
+            if (progress > 0.6f)
+            {
+                Color color = textComponent.color;
+                color.a = 1f - ((progress - 0.6f) / 0.4f);
+                textComponent.color = color;
+            }
             
             yield return null;
         }
